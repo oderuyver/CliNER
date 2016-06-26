@@ -12,109 +12,75 @@ __date__   = 'Oct. 5, 2014'
 
 
 import os
-import os.path
 import glob
 import argparse
-import cPickle as pickle
 import sys
 
-import helper
-from sets import Set
+import tools
 from model import Model
-from notes.note import Note
-from notes.utilities_for_notes import NoteException
+from note import Note
 
-sys.path.append(os.path.join(*[os.environ["CLINER_DIR"], "cliner", "features_dir"]))
 
-from read_config import enabled_modules
+# base directory
+CLINER_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# Import feature modules
-enabled = enabled_modules()
 
-if enabled["UMLS"]:
-
-    from disambiguation import cui_disambiguation
 
 def main():
-    parser = argparse.ArgumentParser()
 
-    parser.add_argument("-t",
+    # Parse arguments
+    parser = argparse.ArgumentParser(prog='cliner train')
+    parser.add_argument("--txt",
         dest = "txt",
-        help = "The files that contain the training examples",
+        help = ".txt files of discharge summaries"
     )
-
-    parser.add_argument("-c",
+    parser.add_argument("--annotations",
         dest = "con",
-        help = "The files that contain the labels for the training examples",
+        help = "concept files for annotations of the .txt files",
     )
-
-    parser.add_argument("-m",
+    parser.add_argument("--model",
         dest = "model",
-        help = "Path to the model that should be generated",
+        help = "Path to the model that should be stored",
     )
-
-    parser.add_argument("-f",
+    parser.add_argument("--log",
+        dest = "log",
+        help = "Path to the log file for training info",
+        default = os.path.join(CLINER_DIR, 'models', 'train.log')
+    )
+    parser.add_argument("--format",
         dest = "format",
-        help = "Data format ( " + ' | '.join(Note.supportedFormats()) + " )",
+        help = "Data format ( i2b2 )"
     )
-
-    parser.add_argument("-g",
-        dest = "grid",
-        help = "A flag indicating whether to perform a grid search",
-        action = "store_true"
-    )
-
-    parser.add_argument("-no-crf",
-        dest = "nocrf",
-        help = "A flag indicating whether to use crfsuite for pass one.",
-        action = "store_true"
-    )
-
-    parser.add_argument("-discontiguous_spans",
-        dest = "third",
-        help = "A flag indicating whether to have third/clustering pass",
-        action = "store_true"
-    )
-
-    parser.add_argument("-umls_disambiguation",
-        dest = "umls_disambiguation",
-        action = "store_true",
-        help = "A flag indicating wheter to disambiguate CUI id for detected entities in semeval format",
-    )
-
-    """
-    parser.add_argument("-unlabeled",
-        dest = "unlabeled",
-        help = "Path to dir containing unlabelled data used for unsupervised methods",
-    )
-    """
 
     # Parse the command line arguments
     args = parser.parse_args()
-    is_crf = not args.nocrf
-    third = args.third
 
     # Error check: Ensure that file paths are specified
     if not args.txt:
         print >>sys.stderr, '\n\tError: Must provide text files'
         print >>sys.stderr,  ''
+        parser.print_help(sys.stderr)
+        print >>sys.stderr,  ''
         exit(1)
     if not args.con:
         print >>sys.stderr, '\n\tError: Must provide annotations for text files'
         print >>sys.stderr,  ''
+        parser.print_help(sys.stderr)
+        print >>sys.stderr,  ''
         exit(1)
     if not args.model:
         print >>sys.stderr, '\n\tError: Must provide valid path to store model'
+        print >>sys.stderr,  ''
+        parser.print_help(sys.stderr)
         print >>sys.stderr,  ''
         exit(1)
     modeldir = os.path.dirname(args.model)
     if (not os.path.exists(modeldir)) and (modeldir != ''):
         print >>sys.stderr, '\n\tError: Model dir does not exist: %s' % modeldir
         print >>sys.stderr,  ''
+        parser.print_help(sys.stderr)
+        print >>sys.stderr,  ''
         exit(1)
-
-    if "PY4J_DIR_PATH" not in os.environ and args.third is True:
-        exit("please set environ var PY4J_DIR_PATH to the dir of the folder containg py4j<version>.jar")
 
 
     # A list of text    file paths
@@ -124,58 +90,43 @@ def main():
 
 
     # data format
-    if args.format:
-        format = args.format
-    else:
+    if not args.format:
         print '\n\tERROR: must provide "format" argument\n'
         exit()
 
-    if third is True and args.format == "i2b2":
-        exit("i2b2 formatting does not support disjoint spans")
 
     # Must specify output format
-    if format not in Note.supportedFormats():
+    if args.format not in ['i2b2']:
         print >>sys.stderr, '\n\tError: Must specify output format'
-        print >>sys.stderr,   '\tAvailable formats: ', ' | '.join(Note.supportedFormats())
+        print >>sys.stderr,   '\tAvailable formats: i2b2'
         print >>sys.stderr, ''
         exit(1)
 
 
     # Collect training data file paths
-    txt_files_map = helper.map_files(txt_files) # ex. {'record-13': 'record-13.con'}
-    con_files_map = helper.map_files(con_files)
+    txt_files_map = tools.map_files(txt_files)
+    con_files_map = tools.map_files(con_files)
 
-    training_list = []                          # ex. training_list =  [ ('record-13.txt', 'record-13.con') ]
+    training_list = []
     for k in txt_files_map:
         if k in con_files_map:
             training_list.append((txt_files_map[k], con_files_map[k]))
 
     # Train the model
-    train(training_list, args.model, format, is_crf=is_crf, grid=args.grid, third=third, disambiguate=args.umls_disambiguation)
+    train(training_list, args.model, args.format, logfile=args.log)
 
-def train(training_list, model_path, format, is_crf=True, grid=False, third=False, disambiguate=False):
 
-    """
-    train()
 
-    Purpose: Train a model for given clinical data.
-
-    @param training_list  list of (txt,con) file path tuples (training instances)
-    @param model_path     string filename of where to pickle model object
-    @param format         concept file data format (ex. i2b2, semeval)
-    @param is_crf         whether first pass should use CRF classifier
-    @param grid           whether second pass should perform grid search
-    @param third          whether to perform third/clustering pass
-    """
+def train(training_list, model_path, format, logfile=None):
 
     # Read the data into a Note object
     notes = []
     for txt, con in training_list:
-
-        note_tmp = Note(format)   # Create Note
-        note_tmp.read(txt, con)   # Read data into Note
-        notes.append(note_tmp)    # Add the Note to the list
-
+        #try:
+            note_tmp = Note(txt, con)    # Create Note
+            notes.append(note_tmp)    # Add the Note to the list
+        #except Exception, e:
+        #    exit( '\n\tWARNING: Note Exception - %s\n\n' % str(e) )
 
     # file names
     if not notes:
@@ -183,22 +134,16 @@ def train(training_list, model_path, format, is_crf=True, grid=False, third=Fals
         return 1
 
     # Create a Machine Learning model
-    model = Model(is_crf=is_crf)
-
-    # disambiguation
-    if format == "semeval" and disambiguate is True and enabled["UMLS"] != None:
-        model.set_cui_freq(cui_disambiguation.calcFreqOfCuis(training_list))
+    model = Model()
 
     # Train the model using the Note's data
-    model.train(notes, grid, do_third=third)
+    model.train(notes)
 
     # Pickle dump
     print '\nserializing model to %s\n' % model_path
-    with open(model_path, "wb") as m_file:
-        pickle.dump(model, m_file)
+    model.serialize(model_path, logfile)
 
-    # return trained model
-    return model
+
 
 
 if __name__ == '__main__':

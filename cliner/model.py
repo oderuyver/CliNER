@@ -1,81 +1,80 @@
-from __future__ import with_statement
 
-from sklearn.feature_extraction  import DictVectorizer
-
-import features_dir.features as feat_obj
-
-from features_dir.utilities import load_pickled_obj, is_prose_sentence
-from features_dir.BagOfWords import BagOfWords
-from features_dir.read_config import enabled_modules
-
-from machine_learning import sci
-from machine_learning import crf
-
-from notes.note import concept_labels, reverse_concept_labels
-from notes.note import     IOB_labels,     reverse_IOB_labels
-from tools      import flatten, save_list_structure, reconstruct_list
-
+import sys
+import os
 from collections import defaultdict
+from time import localtime, strftime
 
-# Stores the verbosity
-import globals_cliner
+import keras_ml
+
 import numpy as np
 
-if enabled_modules()["WORD2VEC"]:
+from tools import flatten, save_list_structure, reconstruct_list
+from tools import pickle_dump, load_pickled_obj
 
-    from features_dir.word2vec_dir import clustering
-    from features_dir.word2vec_dir.ngrams import get_char_gram_mappings
-    from features_dir.word2vec_dir.clustering import get_sequence_vector_clusters
+from note import labels as tag2id
+
+
+
+
+# reverse this dict
+id2tag = { v:k for k,v in tag2id.items() }
+
+
+
+def print_features(f, label, feature_names):
+    COLUMNS = 4
+    feature_names = sorted(feature_names)
+    print >>f, '\t    %s' % label
+    start = 0
+    for row in range(len(feature_names)/COLUMNS + 1):
+        print >>f,'\t\t',
+        for featname in feature_names[start:start+COLUMNS]:
+            print >>f, '%-15s' % featname,
+        print >>f, ''
+        start += COLUMNS
+
 
 
 class Model:
 
     @staticmethod
-    def load(filename='awesome.model'):
+    def load(filename):
         model = load_pickled_obj(filename)
         model.filename = filename
-
         return model
 
 
-    def __init__(self, is_crf=True):
+    def serialize(self, filename, logfile=None):
+        # Serialize the model
+        pickle_dump(self, filename)
 
-        # Use python-crfsuite
-        self._crf_enabled = is_crf
+        # Describe training info?
+        if logfile:
+            #with open(logfile, 'a') as f:
+            f = sys.stdout
+            if True:
+                print >>f, '-'*40
+                print >>f, ''
+                print >>f, 'model         : ', filename
+                print >>f, 'training began: ', self._time_train_begin
+                print >>f, 'training ended: ', self._time_train_end
+                print >>f, ''
+                print >>f, 'Training Files'
+                print >>f, ''
+                print_features(f, 'files', self._training_files)
+                print >>f, ''
+                print >>f, '-'*40
 
-        # DictVectorizers
-        self._first_prose_vec    = None
-        self._first_nonprose_vec = None
-        self._second_vec         = None
-        self.third_vec           = None
 
+
+    def __init__(self):
         # Classifiers
-        self._first_prose_clf    = None
-        self._first_nonprose_clf = None
-        self._second_clf         = None
-        self.third_clf           = None
+        self._clf     = None
+        self._vocab   = None
 
 
-        self.cui_freq            = None
-        self.bow                 = None
 
-        # clustered vectors
-        self.skipgram_mappings   = None
-        self.seq_clusters        = None
-        self.seq_lex_clusters    = None
-
-
-    def set_cui_freq(self, cui_freq):
-        self.cui_freq = cui_freq
-
-
-    def get_cui_freq(self):
-        assert self.cui_freq is not None
-        return self.cui_freq
-
-
-    def train(self, notes, do_grid=False, do_third=False):
-
+    def train(self, notes):
         """
         Model::train()
 
@@ -85,45 +84,51 @@ class Model:
         @return       None
         """
 
+        # metadata
+        self._time_train_begin = strftime("%Y-%m-%d %H:%M:%S", localtime())
+
         # Extract formatted data
-        tokenized_sentences, iob_labels =  first_pass_data_and_labels(notes)
-        chunks, indices    , con_labels = second_pass_data_and_labels(notes)
+        tokenized_sents  = flatten([n.getTokenizedSentences() for n in notes])
+        labels           = flatten([n.getTokenLabels()        for n in notes])
 
-        if enabled_modules()["WORD2VEC"]:
+        #tokenized_sents = tokenized_sents[15:20]
+        #labels          =          labels[15:20]
 
-            self.set_char_gram_maps(tokenized_sentences)
+        '''
+        # experiment! Do POS tagging or something
+        from nltk.corpus import brown
+        nb_samples = 5000
+        full_corpus = brown.tagged_sents(tagset='universal')
+        corpus = list(full_corpus[0:nb_samples])
 
-            clustering.skipgram_mappings  = self.skipgram_mappings
+        tokenized_sents = []
+        labels = []
+        for tagged_sent in corpus:
+            tokenized_sents.append( [ t[0].lower() for t in tagged_sent ] )
+            labels.append(          [ t[1]         for t in tagged_sent ] )
 
-            self.set_clusters(chunks, indices)
+        global tag2id
+        tag2id = {}
+        for tags in labels:
+            for tag in tags:
+                if tag not in tag2id:
+                    tag2id[tag] = len(tag2id)
+        # -- end experiment
+        '''
 
-            # setting as globals within module so they don't have to be passed as parameters...
-            clustering.lexical_cluster    = self.seq_lex_clusters
-            clustering.embedding_clusters = self.seq_clusters
+        # train classifier
+        voc, clf, vect = generic_train('all', tokenized_sents, labels)
+        self._vocab = voc
+        self._clf   = clf
+        self._vect  = vect
 
-        # Train classifiers for 1st pass and 2nd pass
-        self.__first_train(tokenized_sentences , iob_labels, do_grid)
-        self.__second_train(chunks, indices    , con_labels, do_grid)
-
-        if do_third is True:
-            self.__third_train(tokenized_sentences, notes, do_grid)
-
-
-    def set_char_gram_maps(self, tokenized_sentences):
-
-        self.skipgram_mappings = get_char_gram_mappings(tokenized_sentences, 200)
-
-        return
-
-    def set_clusters(self, chunked_sentences, chunked_indices):
-
-        self.seq_clusters, self.seq_lex_clusters = get_sequence_vector_clusters(chunked_sentences, chunked_indices)
-
-        return
+        # metadata
+        self._time_train_end = strftime("%Y-%m-%d %H:%M:%S", localtime())
+        self._training_files = [ n.getName() for n in notes ]
 
 
-    def predict(self, note, do_third=False):
 
+    def predict(self, note):
         """
         Model::predict()
 
@@ -133,703 +138,222 @@ class Model:
         @return      <list> of Classification objects
         """
 
-        if enabled_modules["WORD2VEC"]:
-
-            # setting as globals within module so they don't have to be passed as parameters...
-            clustering.lexical_cluster    = self.seq_lex_clusters
-            clustering.embedding_clusters = self.seq_clusters
-            clustering.skipgram_mappings  = self.skipgram_mappings
-
-        # First pass (IOB Chunking)
-        if globals_cliner.verbosity > 0:
-            print 'first pass'
-
         # Extract formatted data
-        tokenized_sentences =  first_pass_data(note)
+        tokenized_sents  = note.getTokenizedSentences()
 
-        # Predict IOB labels
-        iobs = self.__first_predict(tokenized_sentences)
-        note.setIOBLabels(iobs)
+        # Train classifiers for 1st pass and 2nd pass
+        print '\textracting  features'
 
-        # Second pass (concept labels)
-        if globals_cliner.verbosity > 0:
-            print 'second pass'
+        # Predict labels for prose
+        num_pred = generic_predict('all'                   ,
+                                   tokenized_sents         ,
+                                   vocab    = self._vocab  ,
+                                   clf      = self._clf    ,
+                                   dict2vec = self._vect   )
+        iob_pred = [ [id2tag[p] for p in seq] for seq in num_pred ]
 
-        # Extract formatted data
-        chunked_sentences, inds = second_pass_data(note)
+        return iob_pred
 
-        # Predict concept labels
-        classifications = self.__second_predict(chunked_sentences, inds)
 
-        result = classifications
 
-        # TODO: make third pass work other formattings.
-        if note.format == "semeval":
-            # Third pass enabled?
-            if do_third is True:
 
-                if globals_cliner.verbosity > 0:
-                    print 'third pass'
-                clustered = self.__third_predict(chunked_sentences, classifications, inds)
-                result = clustered
-
-            else:
-                # Treat each as its own set of spans (each set containing one tuple)
-                clustered = [ (c[0],c[1],[(c[2],c[3])]) for c in classifications ]
-                result = clustered
-
-        return result
-
-
-
-
-    #########################################################################
-    ##           Mid-level reformats data and sends to lower level         ##
-    #########################################################################
-
-    def __first_train(self, tokenized_sentences, Y, do_grid=False):
-
-        """
-        Model::__first_train()
-
-        Purpose: Train the first pass classifiers (for IOB chunking)
-
-        @param tokenized_sentences. <list> of tokenized sentences
-        @param Y.                   <list-of-lists> of IOB labels for words
-        @param do_grid.             <boolean> whether to perform a grid search
-
-        @return          None
-        """
-
-        if globals_cliner.verbosity > 0: print 'first pass'
-        if globals_cliner.verbosity > 0: print '\textracting  features (pass one)'
-
-        # Seperate into prose v nonprose
-        nested_prose_data   ,    nested_prose_Y = zip(*filter(lambda line_iob_tup:     is_prose_sentence(line_iob_tup[0]), zip(tokenized_sentences,Y) ))
-        nested_nonprose_data, nested_nonprose_Y = zip(*filter(lambda line_iob_tup: not is_prose_sentence(line_iob_tup[0]), zip(tokenized_sentences,Y) ))
-
-
-        #extract features
-        nested_prose_feats    = feat_obj.IOB_prose_features(      nested_prose_data)
-        nested_nonprose_feats = feat_obj.IOB_nonprose_features(nested_nonprose_data)
-
-        # Flatten lists (because classifier will expect flat)
-        prose_Y        = flatten(nested_prose_Y       )
-        nonprose_Y     = flatten(nested_nonprose_Y    )
-
-        # rename because code uses it
-        pchunks  =    prose_Y
-        nchunks  = nonprose_Y
-        prose    =    nested_prose_feats
-        nonprose = nested_nonprose_feats
-
-        # Train classifiers for prose and nonprose
-        pvec, pclf = self.__generic_first_train(   'prose',    prose, pchunks, do_grid)
-        nvec, nclf = self.__generic_first_train('nonprose', nonprose, nchunks, do_grid)
-
-        # Save vectorizers
-        self._first_prose_vec    = pvec
-        self._first_nonprose_vec = nvec
-
-        # Save classifiers
-        self._first_prose_clf    = pclf
-        self._first_nonprose_clf = nclf
-
-
-
-
-    def __second_train(self, chunked_data, inds_list, con_labels, do_grid=False):
-
-        """
-        Model::__second_train()
-
-        Purpose: Train the first pass classifiers (for IOB chunking)
-
-        @param data      <list> of tokenized sentences after collapsing chunks
-        @param inds_list <list-of-lists> of indices
-                           - assertion: len(data) == len(inds_list)
-                           - one line of 'inds_list' contains a list of indices
-                               into the corresponding line for 'data'
-        @param con_labels <list> of concept label strings
-                           - assertion: there are sum(len(inds_list)) labels
-                              AKA each index from inds_list maps to a label
-        @param do_grid   <boolean> indicating whether to perform a grid search
-
-        @return          None
-        """
-
-        if globals_cliner.verbosity > 0: print 'second pass'
-
-
-        # Extract features
-        if globals_cliner.verbosity > 0:
-            print '\textracting  features (pass two)'
-
-        text_features = [ feat_obj.concept_features(s,inds) for s,inds in zip(chunked_data,inds_list) ]
-
-        flattened_text_features = flatten(text_features)
-
-
-        if globals_cliner.verbosity > 0:
-            print '\tvectorizing features (pass two)'
-
-        # Vectorize labels
-        numeric_labels = [  concept_labels[y]  for  y  in  con_labels  ]
-
-        # Vectorize features
-        self._second_vec = DictVectorizer()
-        vectorized_features = self._second_vec.fit_transform(flattened_text_features)
-
-        if globals_cliner.verbosity > 0:
-            print '\ttraining  classifier (pass two)'
-
-        # Train the model
-        self._second_clf = sci.train(vectorized_features,numeric_labels,do_grid)
-
-
-
-
-    def __third_train(self, tokenized_sentences, notes, do_grid):
-
-        print 'third pass'
-
-        print '\textracting  features (pass three)'
-        # Get data and annotations of which spans actaully should be grouped
-        classifications = []
-        chunks = []
-        for note in notes:
-
-            # Annotations for groups
-            seen = len(chunks)
-            non_offset = note.getNonContiguousSpans()
-            offset = [ (c[0],c[1]+seen,c[2]) for c in non_offset ]
-            classifications += offset
-
-            # Chunked text
-            chunks += note.getChunkedText()
-
-        self.bow = BagOfWords()
-
-        fit_bag_of_words(self.bow, chunks)
-
-        indices = [  note.getConceptIndices()  for  note  in  notes  ]
-
-        inds  = reduce( concat, indices )
-
-        # Useful for encoding annotations
-        # query line number & chunk index to get list of shared chunk indices
-        relations = defaultdict(lambda:defaultdict(lambda:[]))
-        for concept,lineno,spans in classifications:
-            for i in range(len(spans)):
-                key = spans[i]
-                for j in range(len(spans)):
-                    if i == j: continue
-                    relations[lineno][key].append(spans[j])
-
-        # Extract features between pairs of chunks
-        unvectorized_X = feat_obj.extract_third_pass_features(chunks, inds, bow=self.bow)
-
-        print '\tvectorizing features (pass three)'
-
-        # Construct boolean vector of annotations
-        Y = []
-
-        for lineno,indices in enumerate(inds):
-            # Cannot have pairwise relationsips with either 0 or 1 objects
-            if len(indices) < 2: continue
-
-            # Build (n choose 2) booleans
-            bools = []
-            for i in range(len(indices)):
-                for j in range(i+1,len(indices)):
-                    # Does relationship exist between this pair?
-                    if indices[j] in relations[lineno][indices[i]]:
-                        #print indices[i], indices[j]
-                        shared = 1
-                    else:
-                        shared = 0
-                    # Positive or negative result for training
-                    bools.append(shared)
-
-            Y += bools
-
-        self.third_vec = DictVectorizer()
-
-        # Vectorize features
-        X = self.third_vec.fit_transform(unvectorized_X)
-
-        print '\ttraining classifier  (pass three)'
-
-        # Train classifier
-        self.third_clf = sci.train(X, Y, do_grid, default_label=0)
-
-
-    def __first_predict(self, data):
-
-        """
-        Model::__first_predict()
-
-        Purpose: Predict IOB chunks on data
-
-        @param data.  A list of split sentences    (1 sent = 1 line from file)
-        @return       A list of list of IOB labels (1:1 mapping with data)
-        """
-
-        if globals_cliner.verbosity > 0:print '\textracting  features (pass one)'
-
-        # Seperate into
-        nested_prose_data    = filter(lambda line:     is_prose_sentence(line), data)
-        nested_nonprose_data = filter(lambda line: not is_prose_sentence(line), data)
-
-        # Parition into prose v. nonprose
-        nested_prose_feats    = feat_obj.IOB_prose_features(      nested_prose_data)
-        nested_nonprose_feats = feat_obj.IOB_nonprose_features(nested_nonprose_data)
-
-        # rename because code uses it
-        prose    =    nested_prose_feats
-        nonprose = nested_nonprose_feats
-
-        # Predict labels for IOB prose and nonprose text
-        nlist = self.__generic_first_predict('nonprose', nonprose, self._first_nonprose_vec, self._first_nonprose_clf)
-        plist = self.__generic_first_predict(   'prose',    prose, self._first_prose_vec   , self._first_prose_clf   )
-
-
-        # Stitch prose and nonprose data back together
-        # translate IOB labels into a readable format
-        prose_iobs    = []
-        nonprose_iobs = []
-        iobs          = []
-        num2iob = lambda l: reverse_IOB_labels[int(l)]
-        for sentence in data:
-            if sentence == []:
-                iobs.append( [] )
-            elif is_prose_sentence(sentence):
-                prose_iobs.append( plist.pop(0) )
-                prose_iobs[-1] = map(num2iob, prose_iobs[-1])
-                iobs.append( prose_iobs[-1] )
-            else:
-                nonprose_iobs.append( nlist.pop(0) )
-                nonprose_iobs[-1] = map(num2iob, nonprose_iobs[-1])
-                iobs.append( nonprose_iobs[-1] )
-
-        # list of list of IOB labels
-        return iobs
-
-
-
-
-    def __second_predict(self, chunked_sentences, inds_list):
-
-        # If first pass predicted no concepts, then skip
-        # NOTE: Special case because SVM cannot have empty input
-        if sum([ len(inds) for inds in inds_list ]) == 0:
-            print "first pass predicted no concepts, skipping second pass"
-            return []
-
-        # Create object that is a wrapper for the features
-        if globals_cliner.verbosity > 0: print '\textracting  features (pass two)'
-
-        print '\textracting  features (pass two)'
-
-        # Extract features
-        text_features = [ feat_obj.concept_features(s,inds) for s,inds in zip(chunked_sentences,inds_list) ]
-        flattened_text_features = flatten(text_features)
-
-
-        print '\tvectorizing features (pass two)'
-
-        if globals_cliner.verbosity > 0: print '\tvectorizing features (pass two)'
-
-        # Vectorize features
-        vectorized_features = self._second_vec.transform(flattened_text_features)
-
-        if globals_cliner.verbosity > 0: print '\tpredicting    labels (pass two)'
-
-        # Predict concept labels
-        out = sci.predict(self._second_clf, vectorized_features)
-
-        # Line-by-line processing
-        o = list(out)
-        classifications = []
-        for lineno,inds in enumerate(inds_list):
-
-            # Skip empty line
-            if not inds: continue
-
-            # For each concept
-            for ind in inds:
-
-                # Get next concept
-                concept = reverse_concept_labels[o.pop(0)]
-
-                # Get start position (ex. 7th word of line)
-                start = 0
-                for i in range(ind):
-                    start += len( chunked_sentences[lineno][i].split() )
-
-                # Length of chunk
-                length = len(chunked_sentences[lineno][ind].split())
-
-                # Classification token
-                classifications.append( (concept,lineno+1,start,start+length-1) )
-
-        # Return classifications
-        return classifications
-
-
-    def __third_predict(self, chunks, classifications, inds):
-
-        print '\textracting  features (pass three)'
-
-        # Extract features between pairs of chunks
-        unvectorized_X = feat_obj.extract_third_pass_features(chunks, inds, bow=self.bow)
-
-        print '\tvectorizing features (pass three)'
-
-        # Vectorize features
-        X = self.third_vec.transform(unvectorized_X)
-
-        print '\tpredicting    labels (pass three)'
-
-        # Predict concept labels
-        predicted_relationships = sci.predict(self.third_clf, X)
-
-        classifications_cpy = list(classifications)
-
-        # Stitch SVM output into clustered token span classifications
-        clustered = []
-        for indices in inds:
-
-            # Cannot have pairwise relationsips with either 0 or 1 objects
-            if len(indices) == 0:
-                continue
-
-            elif len(indices) == 1:
-                # Contiguous span (adjust format to (length-1 list of tok spans)
-                tup = list(classifications_cpy.pop(0))
-                tup = (tup[0],tup[1],[(tup[2],tup[3])])
-                clustered.append(tup)
-
-            else:
-
-                # Number of classifications on the line
-                tups = []
-                for _ in range(len(indices)):
-                    tup = list(classifications_cpy.pop(0))
-                    tup = (tup[0],tup[1],[(tup[2],tup[3])])
-                    tups.append(tup)
-
-                # Pairwise clusters
-                clusters = {}
-
-                # ASSUMPTION: All classifications have same label
-                concept = tups[0][0]
-                lineno = tups[0][1]
-                spans = map(lambda t:t[2][0], tups)
-
-                # Keep track of non-clustered spans
-                singulars = list(tups)
-
-                # Get all pairwise relationships for the line
-                for i in range(len(indices)):
-                    for j in range(i+1,len(indices)):
-                        pair = predicted_relationships.pop(0)
-                        if pair == 1:
-                            tup = (concept,lineno,[spans[i],spans[j]])
-                            clustered.append(tup)
-
-                            # No longer part of a singular span
-                            if tups[i] in singulars:
-                                singulars.remove(tups[i])
-                            if tups[j] in singulars:
-                                singulars.remove(tups[j])
-
-                clustered += singulars
-
-        return clustered
-
-
-
-    ############################################################################
-    ###               Lowest-level (interfaces to ML modules)                ###
-    ############################################################################
-
-
-    def __generic_first_train(self, p_or_n, text_features, iob_labels, do_grid=False):
-
-        '''
-        Model::__generic_first_train()
-
-        Purpose: Train that works for both prose and nonprose
-
-        @param p_or_n.        <string> either "prose" or "nonprose"
-        @param text_features. <list-of-lists> of feature dictionaries
-        @param iob_labels.    <list> of "I", "O", and "B" labels
-        @param do_grid.       <boolean> indicating whether to perform grid search
-        '''
-
-        # Must have data to train on
-        if len(text_features) == 0:
-            raise Exception('Training must have %s training examples' % p_or_n)
-
-        # Vectorize IOB labels
-        Y_labels = [  IOB_labels[y]  for  y  in  iob_labels  ]
-
-        # Save list structure to reconstruct after vectorization
-        offsets = save_list_structure(text_features)
-
-        if globals_cliner.verbosity > 0: print '\tvectorizing features (pass one) ' + p_or_n
-
-        #X = reconstruct_list(flatten(text_features), offsets)
-        #Y = reconstruct_list(        Y_labels      , offsets)
-        #for a,b in zip(X,Y):
-        #    for x,y in zip(a,b):
-        #        print y
-        #        #print filter(lambda t:t[0]=='word', x.keys())
-        #        print x.keys()
-        #        print
-        #    print '\n\n\n'
-
-        # Vectorize features
-        dvect = DictVectorizer()
-        X_feats = dvect.fit_transform( flatten(text_features) )
-
-        # CRF needs reconstructed lists
-        if self._crf_enabled:
-            X_feats  = reconstruct_list( list(X_feats) , offsets)
-            Y_labels = reconstruct_list(      Y_labels , offsets)
-            lib = crf
-        else:
-            lib = sci
-
-        if globals_cliner.verbosity > 0: print '\ttraining classifiers (pass one) ' + p_or_n
-
-        #for i,X in enumerate(X_feats):
-        #    for j,x in enumerate(X):
-        #        print x, '\t', Y_labels[i][j]
-        #    print
-        #exit()
-
-        # Train classifier
-        clf  = lib.train(X_feats, Y_labels, do_grid)
-
-        return dvect,clf
-
-
-
-    def __generic_first_predict(self, p_or_n, text_features, dvect, clf, do_grid=False):
-
-        '''
-        Model::__generic_first_predict()
-
-        Purpose: Train that works for both prose and nonprose
-
-        @param p_or_n.        <string> either "prose" or "nonprose"
-        @param text_features. <list-of-lists> of feature dictionaries
-        @param dvect.         <DictVectorizer>
-        @param clf.           scikit-learn classifier
-        @param do_grid.       <boolean> indicating whether to perform grid search
-        '''
-
-        # If nothing to predict, skip actual prediction
-        if len(text_features) == 0:
-            print '\tnothing to predict (pass one) ' + p_or_n
-            return []
-
-        # Save list structure to reconstruct after vectorization
-        offsets = save_list_structure(text_features)
-
-        if globals_cliner.verbosity > 0: print '\tvectorizing features (pass one) ' + p_or_n
-
-        # Vectorize features
-        X_feats = dvect.transform( flatten(text_features) )
-
-        if globals_cliner.verbosity > 0: print '\tpredicting    labels (pass one) ' + p_or_n
-
-        # CRF requires reconstruct lists
-        if self._crf_enabled:
-            X_feats  = reconstruct_list(list(X_feats) , offsets)
-            lib = crf
-        else:
-            lib = sci
-
-        #for X in X_feats:
-        #    for x in X:
-        #        print x
-        #    print
-        #print '\n'
-
-        # Predict IOB labels
-        out = lib.predict(clf, X_feats)
-
-        # Format labels from output
-        predictions  = reconstruct_list(out, offsets)
-        return predictions
-
-
-
-
-
-def extract_concept_features(chunked_sentences, inds_list, feat_obj):
-    ''' extract conept (2nd pass) features from textual data '''
-    X = []
-    for s,inds in zip(chunked_sentences, inds_list):
-        X += feat_obj.concept_features(s, inds)
-    return X
-
-
-
-
-def first_pass_data_and_labels(notes):
-
+def generic_train(p_or_n, tokenized_sents, iob_nested_labels):
     '''
-    first_pass_data_and_labels()
+    generic_train()
 
-    Purpose: Interface with notes object to get text data and labels
-
-    @param notes. List of Note objects
-    @return <tuple> whose elements are:
-              0) list of tokenized sentences
-              1) list of labels for tokenized sentences
-
-    >>> import os
-    >>> from notes.note import Note
-    >>> base_dir = os.path.join(os.getenv('CLINER_DIR'), 'tests', 'data')
-    >>> txt = os.path.join(base_dir, 'single.txt')
-    >>> con = os.path.join(base_dir, 'single.con')
-    >>> note_tmp = Note('i2b2')
-    >>> note_tmp.read(txt, con)
-    >>> notes = [note_tmp]
-    >>> first_pass_data_and_labels(notes)
-    ([['The', 'score', 'stood', 'four', 'to', 'two', ',', 'with', 'but', 'one', 'inning', 'more', 'to', 'play', ',']], [['B', 'I', 'I', 'I', 'I', 'I', 'O', 'O', 'O', 'O', 'O', 'O', 'O', 'O', 'O']])
+    Purpose: Train that works for both prose and nonprose
     '''
 
-    # Get the data and annotations from the Note objects
-    l_tokenized_sentences = [ note.getTokenizedSentences() for note in notes ]
-    l_iob_labels          = [ note.getIOBLabels()          for note in notes ]
+    # Must have data to train on
+    if len(tokenized_sents) == 0:
+        raise Exception('Training must have %s training examples' % p_or_n)
 
-    tokenized_sentences = flatten(l_tokenized_sentences)
-    iob_labels          = flatten(l_iob_labels         )
+    #tokenized_sents   =   tokenized_sents * 40
+    #iob_nested_labels = iob_nested_labels * 40
 
-    return tokenized_sentences, iob_labels
-
-
-
-
-def second_pass_data_and_labels(notes):
-
-    '''
-    second_pass_data_and_labels()
-
-    Purpose: Interface with notes object to get text data and labels
-
-    @param notes. List of Note objects
-    @return <tuple> whose elements are:
-              0) list of chunked sentences
-              0) list of list-of-indices designating chunks
-              1) list of labels for chunks
-
-    >>> import os
-    >>> from notes.note import Note
-    >>> base_dir = os.path.join(os.getenv('CLINER_DIR'), 'tests', 'data')
-    >>> txt = os.path.join(base_dir, 'single.txt')
-    >>> con = os.path.join(base_dir, 'single.con')
-    >>> note_tmp = Note('i2b2')
-    >>> note_tmp.read(txt, con)
-    >>> notes = [note_tmp]
-    >>> second_pass_data_and_labels(notes)
-    ([['The score stood four to two', ',', 'with', 'but', 'one', 'inning', 'more', 'to', 'play', ',']], [[0]], ['problem'])
-    '''
-
-    # Get the data and annotations from the Note objects
-    l_chunked_sentences  = [  note.getChunkedText()     for  note  in  notes  ]
-    l_inds_list          = [  note.getConceptIndices()  for  note  in  notes  ]
-    l_con_labels         = [  note.getConceptLabels()   for  note  in  notes  ]
-
-    chunked_sentences = flatten(l_chunked_sentences)
-    inds_list         = flatten(l_inds_list        )
-    con_labels        = flatten(l_con_labels       )
-
-    #print 'labels: ', len(con_labels)
-    #print 'inds:   ', sum(map(len,inds_list))
+    #print len(tokenized_sents)
     #exit()
 
-    return chunked_sentences, inds_list, con_labels
-
-
-
-def first_pass_data(note):
-
     '''
-    first_pass_data()
+    #####################################################
+    from nltk.corpus import brown
+    nb_brown_samples = 2000
+    brown_corpus = brown.tagged_sents(tagset='universal')
+    corpus = list(brown_corpus[0:nb_brown_samples])
 
-    Purpose: Interface with notes object to get first pass data
-
-    @param note. Note objects
-    @return      <list> of tokenized sentences
-
-    >>> import os
-    >>> from notes.note import Note
-    >>> base_dir = os.path.join(os.getenv('CLINER_DIR'), 'tests', 'data')
-    >>> txt = os.path.join(base_dir, 'single.txt')
-    >>> note = Note('i2b2')
-    >>> note.read(txt)
-    >>> first_pass_data(note)
-    [['The', 'score', 'stood', 'four', 'to', 'two', ',', 'with', 'but', 'one', 'inning', 'more', 'to', 'play', ',']]
+    tokenized_sents   = []
+    iob_nested_labels = []
+    tags = set()
+    for tagged_sent in corpus:
+        for sent,pos_tags in tagged_sent:
+            tokenized_sents.append(sent)
+            iob_nested_labels.append(pos_tags)
+            tags = tags | set(pos_tags)
+    tag2id = { t:i for i,t in enumerate(tags) }
+    id2tag = { v:k for k,v in tag2id.items() }
+    #####################################################
     '''
 
-    return note.getTokenizedSentences()
+    print '\tvectorizing words', p_or_n
 
+    # which tokens to remove
+    oov = create_oov(tokenized_sents, percent=.02)
+    #oov = set()
 
+    # build vocabulary of words
+    vocab = {}
+    for sent in tokenized_sents:
+        for w in sent:
+            #if w not in oov:
+                if w not in vocab:
+                    vocab[w] = len(vocab) + 1
+    vocab['oov'] = len(vocab)
 
-def second_pass_data(note):
+    #print 'len: ', len(tokenized_sents)
+    #print 'V:   ', len(vocab)
+    #exit()
+
+    # vectorize tokenized sentences
+    X_seq_ids = []
+    for sent in tokenized_sents:
+        id_seq = [ (vocab[w] if w in vocab else vocab['oov']) for w in sent ]
+        X_seq_ids.append(id_seq)
+    #X_seq_ids = [ [ vocab[w] for w in sent ] for sent in tokenized_sents ]
+    dict2vec = None
+
+    # Flatten and vectorize IOB labels
+    Y_labels = [ [tag2id[y] for y in y_seq] for y_seq in iob_nested_labels ]
+
+    print '\ttraining classifiers', p_or_n
+
+    # Train classifier
+    #print X_seq_ids
+    #print Y_labels
+    #exit()
 
     '''
-    second_pass_data()
+    # load word2vec embeddings
+    word2vec_file = '/data1/wboag/pet/galen/misc/mimic.word2vec'
+    W_dict = load_word2vec(word2vec_file)
+    dim = W_dict.values()[0].shape[0]
 
-    Purpose: Interface with notes object to get second pass data
+    # initialize embedding layer W with word2vec
+    W = np.zeros( (len(vocab), dim) )
+    for w,ind in vocab.items():
+        if w in W_dict:
+            W[ind,:] = W_dict[w]
+        else:
+            W[ind,:] = np.random.rand(dim)
+    '''
+    W = None
 
-    @param notes. List of Note objects
-    @return <tuple> whose elements are:
-              0) list of chunked sentences
-              0) list of list-of-indices designating chunks
+    # predict using lstm
+    clf  = keras_ml.train(X_seq_ids, Y_labels, tag2id, W)
 
-    >>> import os
-    >>> from notes.note import Note
-    >>> base_dir = os.path.join(os.getenv('CLINER_DIR'), 'tests', 'data')
-    >>> txt = os.path.join(base_dir, 'single.txt')
-    >>> note = Note('i2b2')
-    >>> note.read(txt, con)
-    >>> second_pass_data(note)
-    ([['The score stood four to two', ',', 'with', 'but', 'one', 'inning', 'more', 'to', 'play', ',']], [[0]])
+    return vocab, clf, dict2vec
+
+
+
+def generic_predict(p_or_n, tokenized_sents, vocab, clf, dict2vec):
+
+    # If nothing to predict, skip actual prediction
+    if len(tokenized_sents) == 0:
+        print '\tnothing to predict ' + p_or_n
+        return []
+
+
+    print '\tvectorizing words ' + p_or_n
+
+    # vectorize tokenized sentences
+    X_seq_ids = []
+    oov_count = 0
+    all_count = 0
+    for sent in tokenized_sents:
+        id_seq = []
+        for w in sent:
+            if w in vocab:
+                id_seq.append(vocab[w])
+            else:
+                id_seq.append(vocab['oov'])
+                #print 'oov: ', w
+                oov_count += 1
+            all_count += 1
+        X_seq_ids.append(id_seq)
+
+    '''
+    print
+    print 'OOV ratio: ', float(oov_count)/all_count
+    print
+
+    # unpack params for model
+    lstm_model_str, input_dim, num_tags, maxlen = clf
+
+    # dump serialized model out to file in order to load it
+    with open('lstm_keras_weights', 'wb') as f:
+        f.write(lstm_model_str)
+    lstm_model = keras_ml.create_model(input_dim, num_tags, maxlen)
+    lstm_model.load_weights('lstm_keras_weights')
+    os.remove('lstm_keras_weights')
+
+    print
+    print '|V|: ', len(vocab)
+    print
+
+    vals = lstm_model.get_weights() # i,c,f,o
     '''
 
-    # Get the data and annotations from the Note objects
-    chunked_sentences = note.getChunkedText()
-    inds              = note.getConceptIndices()
+    print '\tpredicting  labels ' + p_or_n
 
-    return chunked_sentences, inds
+    # Predict labels
+    predictions = keras_ml.predict(clf, X_seq_ids)
 
-def fit_bag_of_words(bow_obj, data, unlabeled_data=None):
-
-    global bow
-
-    """ needs to be a list of strings """
-
-    corpus = data
-
-    if unlabeled_data is not None:
-
-        corpus += unlabeled_data
-
-    if bow_obj.is_fitted() is False:
-
-        docs = [' '.join(chunk) for chunk in corpus]
-
-        bow_obj.fit(docs)
+    # Format labels from output
+    return predictions
 
 
-def concat(a,b):
-    return a+b
+num_feats = 20
 
+
+
+
+def create_oov(tokenized_sents, percent=.05):
+    freqs = defaultdict(int)
+    for sent in tokenized_sents:
+        for w in sent:
+            freqs[w] += 1
+    total_words = sum(freqs.values())
+    pdf = { w:float(f)/total_words for w,f in freqs.items() }
+    sorted_pdf = sorted(pdf.items(), key=lambda t:t[1])
+
+    # build cumulative distribution function
+    total_mass = 0
+    cdf = []
+    for w,p in sorted_pdf:
+        total_mass += p
+        cdf.append( (w,total_mass) )
+
+    # find the 5% mark for word frequencies
+    for ind in range(len(cdf)):
+        if cdf[ind][1] >= percent:
+            break
+    oov = set()
+    for i in range(ind):
+        oov.add( cdf[i][0] )
+
+    return oov
+
+
+def load_word2vec(W_file):
+    W = {}
+    with open(W_file, 'r') as f:
+        for i,line in enumerate(f.readlines()[1:]):
+            toks = line.split()
+
+            word = toks[0]
+            vec  = np.array(map(float,toks[1:]))
+
+            #vec /= length(vec)
+
+            W[word] = vec
+    return W
 

@@ -15,90 +15,59 @@ import os
 import sys
 import glob
 import argparse
-import helper
-import re
-import string
-import time
-import itertools
-import cPickle as pickle
-import copy
+import tools
 
 from model import Model
-from notes.note import Note
-from multiprocessing import Pool
-
-sys.path.append(os.path.join(*[os.environ["CLINER_DIR"], "cliner", "features_dir"]))
-
-from read_config import enabled_modules
-
-# Import feature modules
-enabled = enabled_modules()
+from note import Note
 
 
 def main():
 
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument("-i",
-        dest = "input",
-        help = "The input files to predict",
+    parser = argparse.ArgumentParser(prog='cliner predict')
+    parser.add_argument("--txt",
+        dest = "txt",
+        help = ".txt files of discharge summaries"
     )
-
-    parser.add_argument("-o",
+    parser.add_argument("--out",
         dest = "output",
         help = "The directory to write the output",
     )
-
-    parser.add_argument("-m",
+    parser.add_argument("--model",
         dest = "model",
         help = "The model to use for prediction",
     )
-
-    parser.add_argument("-f",
+    parser.add_argument("--format",
         dest = "format",
-        help = "Data format ( " + ' | '.join(Note.supportedFormats()) + " )",
+        help = "Data format ( con )"
     )
-
-    parser.add_argument("-crf",
-        dest = "with_crf",
-        help = "Specify where to find crfsuite",
-        default = None
-    )
-
-    parser.add_argument("-discontiguous_spans",
-        dest = "third",
-        help = "A flag indicating whether to have third/clustering pass",
-        action = "store_true"
-    )
-
-    parser.add_argument("-umls_disambiguation",
-        dest = "disambiguate",
-        help = "A flag indicating whether to disambiguate CUI ID for identified entities in semeval",
-        action = "store_true"
-    )
-
     args = parser.parse_args()
 
     # Error check: Ensure that file paths are specified
-    if not args.input:
+    if not args.txt:
         print >>sys.stderr, '\n\tError: Must provide text files\n'
+        parser.print_help(sys.stderr)
+        print >>sys.stderr,  ''
         exit(1)
     if not args.output:
         print >>sys.stderr, '\n\tError: Must provide output directory\n'
+        parser.print_help(sys.stderr)
+        print >>sys.stderr,  ''
         exit(1)
     if not args.model:
         print >>sys.stderr, '\n\tError: Must provide path to model\n'
+        parser.print_help(sys.stderr)
+        print >>sys.stderr,  ''
         exit(1)
     if not os.path.exists(args.model):
         print >>sys.stderr, '\n\tError: Model does not exist: %s\n' % args.model
+        parser.print_help(sys.stderr)
+        print >>sys.stderr,  ''
         exit(1)
 
 
     # Parse arguments
-    files = glob.glob(args.input)
-    helper.mkpath(args.output)
-
-    third = args.third
+    files = glob.glob(args.txt)
+    tools.mkpath(args.output)
 
     if args.format:
         format = args.format
@@ -106,26 +75,18 @@ def main():
         print '\n\tERROR: must provide "format" argument\n'
         exit()
 
-    if third is True and args.format == "i2b2":
-        exit("i2b2 formatting does not support disjoint spans")
-
-    # Tell user if not predicting
-    if not files:
-        print >>sys.stderr, "\n\tNote: You did not supply any input files\n"
-        exit()
 
     # Predict
-    predict(files, args.model, args.output, format=format, third=third, disambiguate=args.disambiguate)
+    predict(files, args.model, args.output, format=format)
 
 
 
-
-def predict(files, model_path, output_dir, format, third=False, disambiguate=False):
+def predict(files, model_path, output_dir, format):
 
     # Must specify output format
-    if format not in Note.supportedFormats():
+    if format not in ['i2b2']:
         print >>sys.stderr, '\n\tError: Must specify output format'
-        print >>sys.stderr,   '\tAvailable formats: ', ' | '.join(Note.supportedFormats())
+        print >>sys.stderr,   '\tAvailable formats: i2b2'
         print >>sys.stderr, ''
         exit(1)
 
@@ -139,45 +100,42 @@ def predict(files, model_path, output_dir, format, third=False, disambiguate=Fal
         print >>sys.stderr, "\n\tNote: You did not supply any input files\n"
         exit()
 
-    if enabled["UMLS"] is not None and disambiguate is True:
-        from disambiguation import cui_disambiguation
 
     # For each file, predict concept labels
     n = len(files)
     for i,txt in enumerate(sorted(files)):
 
-        note = Note(format)
-        note.read(txt)
+        # Read the data into a Note object
+        note = Note(txt)
 
         # Output file
-        extension = note.getExtension()
-        fname = os.path.splitext(os.path.basename(txt))[0] + '.' + extension
+        fname = os.path.splitext(os.path.basename(txt))[0] + '.con'
         out_path = os.path.join(output_dir, fname)
-        #if os.path.exists(out_path):
-        #    print '\tWARNING: prediction file already exists (%s)' % out_path
-        #    continue
+        '''
+        if os.path.exists(out_path):
+            #print '\tWARNING: prediction file already exists (%s)' % out_path
+            continue
+        '''
 
-        if format == "semevaL":
-            note.setFileName(os.path.split(txt)[-1])
+
+        print '-' * 30
+        print '\n\t%d of %d' % (i+1,n)
+        print '\t', txt, '\n'
+
 
         # Predict concept labels
-        labels = model.predict(note, third)
+        labels = model.predict(note)
 
         # Get predictions in proper format
         output = note.write(labels)
 
-        # TODO: make a flag to enable or disable looking up concept ids.
-        if format == "semeval":
-
-            print "\nencoding concept ids"
-            if enabled["UMLS"] is not None and disambiguate is True:
-                output = cui_disambiguation.disambiguate(output, txt, model.get_cui_freq())
 
         # Output the concept predictions
         print '\n\nwriting to: ', out_path
         with open(out_path, 'w') as f:
             print >>f, output
         print
+
 
 
 if __name__ == '__main__':

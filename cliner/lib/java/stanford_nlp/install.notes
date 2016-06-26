@@ -1,7 +1,0 @@
-
-get stanford core nlp from the stanford site.
-
-extract the tar ball in this directory.
-
-rename the directory to stanford-corenlp-full
-

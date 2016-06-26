@@ -1,8 +1,0 @@
-
-The only thing that needs to be installed is the python module py4j.
-
-This can be installed using various tools such as pip or easy_install.
-
-I recommend using virtualenv when installing python modules.
-
-
