@@ -2,8 +2,8 @@
 
 import numpy as np
 import os
-import time
 import random
+import time
 
 
 from keras.utils.np_utils import to_categorical
@@ -13,12 +13,11 @@ from keras.models import Model
 from keras.layers import Dense, Dropout, Embedding, LSTM, Input, merge
 
 
-
+# only load compile this model once per run (useful when predicting many times)
 lstm_model = None
 
 
 def train(X_ids, Y_ids, tag2id, W=None, epochs=5):
-
     # gotta beef it up sometimes
     #X_ids = X_ids * 5
     #Y_ids = Y_ids * 5
@@ -40,8 +39,7 @@ def train(X_ids, Y_ids, tag2id, W=None, epochs=5):
     # fit model
     print 'training begin'
     batch_size = 64
-    lstm_model.fit(X, Y, batch_size=batch_size, nb_epoch=epochs, verbose=1)
-    #lstm_model.save_weights('tmp_keras_weights')
+    history = lstm_model.fit(X, Y, batch_size=batch_size, nb_epoch=epochs, verbose=1)
     print 'training done'
 
     ######################################################################
@@ -49,18 +47,17 @@ def train(X_ids, Y_ids, tag2id, W=None, epochs=5):
     # temporary debugging-ness
     #lstm_model.load_weights('tmp_keras_weights')
 
-
     pred_classes = lstm_model.predict(X, batch_size=batch_size)
 
     predictions = []
     for i in range(nb_samples):
         num_words = len(Y_ids[i])
         tags = pred_classes[i,maxlen-num_words:].argmax(axis=1)
-        print 'gold: ', np.array(Y_ids[i])
-        print 'pred: ', tags
-        print
+        #print 'gold: ', np.array(Y_ids[i])
+        #print 'pred: ', tags
+        #print
         predictions.append(tags.tolist())
-    print '\n\n\n\n'
+    #print '\n\n\n\n'
 
     # confusion matrix
     confusion = np.zeros( (num_tags,num_tags) )
@@ -116,18 +113,23 @@ def train(X_ids, Y_ids, tag2id, W=None, epochs=5):
 
     ######################################################################
 
-
-    # accuracy crap
-
-    # needs to return something pickle-able (so get binary serialized string)
+    # needs to return something pickle-able
     lstm_model.save_weights('tmp_keras_weights')
     with open('tmp_keras_weights', 'rb') as f:
         lstm_model_str = f.read()
     os.remove('tmp_keras_weights')
 
+    # information about fitting the model
+    dev_score = {}
+    dev_score['precision'] = precision
+    dev_score['recall'   ] = recall
+    dev_score['f1'       ] = f1
+    dev_score['history'  ] = history.history
+
     # return model back to cliner
     keras_model_tuple = (lstm_model_str, input_dim, num_tags, maxlen)
-    return keras_model_tuple
+
+    return keras_model_tuple, dev_score
 
 
 

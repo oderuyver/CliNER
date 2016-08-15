@@ -1,10 +1,3 @@
-######################################################################
-#  CliNER - note_i2b2.py                                             #
-#                                                                    #
-#  Willie Boag                                      wboag@cs.uml.edu #
-#                                                                    #
-#  Purpose: Derived note object for reading i2b2 formatted data.     #
-######################################################################
 
 
 __author__ = 'Willie Boag'
@@ -24,9 +17,10 @@ labels = { 'O':0,
            'I-problem':4, 'I-test':5, 'I-treatment':6,
          }
 
+id2tag = { v:k for k,v in labels.items() }
 
 
-class Note:
+class Document:
 
     def __init__(self, txt, con=None):
         # read data
@@ -67,8 +61,6 @@ class Note:
 
     def write(self, pred_labels=None):
         """
-        Note_i2b2::write()
-
         Purpose: Return the given concept label predictions in i2b2 format
 
         @param  tokenized_sents. <list-of-lists> of tokenized sentences
@@ -173,9 +165,6 @@ def read_i2b2(txt, con):
 
             tokenized_sents.append(normed_toks)
 
-
-
-
     # If an accompanying concept file was specified, read it
     tok_concepts = []
     if con:
@@ -228,7 +217,7 @@ def read_i2b2(txt, con):
                     error1='%s has overlapping entities on line %d'%(fname,c1[1])
                     error2="It can't be processed until you remove one"
                     error_msg = '%s\n%s' % (error1,error2)
-                    raise NoteException(error_msg)
+                    raise DocumentException(error_msg)
 
     return tokenized_sents, tok_concepts
 
@@ -320,8 +309,6 @@ def tok_labels_to_concepts(tokenized_sents, tok_labels):
     '''
     tok_labels = corrected
 
-
-
     concepts = []
     for i,labs in enumerate(tok_labels):
 
@@ -383,7 +370,7 @@ def tok_labels_to_concepts(tokenized_sents, tok_labels):
 
 
 
-class NoteException(Exception):
+class DocumentException(Exception):
     pass
 
 

@@ -19,8 +19,8 @@ import glob
 import tools
 from copy import deepcopy
 
-from note import Note
-from note import labels
+from documents import Document
+from documents import labels
 
 
 
@@ -129,8 +129,8 @@ def main():
     for txt, annotations, gold in files:
 
         # Read predictions and gols standard data
-        cnote = Note(txt, annotations)
-        rnote = Note(txt,        gold)
+        cnote = Document(txt, annotations)
+        rnote = Document(txt,        gold)
 
         sents = rnote.getTokenizedSentences()
 

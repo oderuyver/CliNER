@@ -6,28 +6,24 @@
 #  Purpose: Build model for given training data.                     #
 ######################################################################
 
-
 __author__ = 'Willie Boag'
-__date__   = 'Oct. 5, 2014'
-
+__date__   = 'Aug. 15, 2016'
 
 import os
 import glob
 import argparse
 import sys
+import cPickle as pickle
 
 import tools
-from model import Model
-from note import Note
-
+from model import Galen
+from documents import Document
 
 # base directory
 CLINER_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-
 def main():
-
     # Parse arguments
     parser = argparse.ArgumentParser(prog='cliner train')
     parser.add_argument("--txt",
@@ -76,24 +72,20 @@ def main():
         exit(1)
     modeldir = os.path.dirname(args.model)
     if (not os.path.exists(modeldir)) and (modeldir != ''):
-        print >>sys.stderr, '\n\tError: Model dir does not exist: %s' % modeldir
+        print >>sys.stderr, '\n\tError: Galen dir does not exist: %s' % modeldir
         print >>sys.stderr,  ''
         parser.print_help(sys.stderr)
         print >>sys.stderr,  ''
         exit(1)
 
-
-    # A list of text    file paths
-    # A list of concept file paths
+    # A list of text and concept file paths
     txt_files = glob.glob(args.txt)
     con_files = glob.glob(args.con)
-
 
     # data format
     if not args.format:
         print '\n\tERROR: must provide "format" argument\n'
         exit()
-
 
     # Must specify output format
     if args.format not in ['i2b2']:
@@ -101,7 +93,6 @@ def main():
         print >>sys.stderr,   '\tAvailable formats: i2b2'
         print >>sys.stderr, ''
         exit(1)
-
 
     # Collect training data file paths
     txt_files_map = tools.map_files(txt_files)
@@ -118,31 +109,31 @@ def main():
 
 
 def train(training_list, model_path, format, logfile=None):
-
-    # Read the data into a Note object
+    # Read the data into a Document object
     notes = []
     for txt, con in training_list:
         #try:
-            note_tmp = Note(txt, con)    # Create Note
-            notes.append(note_tmp)    # Add the Note to the list
+            note_tmp = Document(txt, con)
+            notes.append(note_tmp)
         #except Exception, e:
-        #    exit( '\n\tWARNING: Note Exception - %s\n\n' % str(e) )
+        #    exit( '\n\tWARNING: Document Exception - %s\n\n' % str(e) )
 
     # file names
     if not notes:
         print 'Error: Cannot train on 0 files. Terminating train.'
-        return 1
+        exit(1)
 
     # Create a Machine Learning model
-    model = Model()
+    model = Galen()
 
-    # Train the model using the Note's data
-    model.train(notes)
+    # Train the model using the Document's data
+    model.fit_from_notes(notes)
 
     # Pickle dump
     print '\nserializing model to %s\n' % model_path
-    model.serialize(model_path, logfile)
-
+    with open(model_path, 'wb') as f:
+        pickle.dump(model, f)
+    model.log(model_path, logfile)
 
 
 

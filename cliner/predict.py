@@ -16,9 +16,10 @@ import sys
 import glob
 import argparse
 import tools
+import cPickle as pickle
 
-from model import Model
-from note import Note
+from model import Galen
+from documents import Document
 
 
 def main():
@@ -59,7 +60,7 @@ def main():
         print >>sys.stderr,  ''
         exit(1)
     if not os.path.exists(args.model):
-        print >>sys.stderr, '\n\tError: Model does not exist: %s\n' % args.model
+        print >>sys.stderr, '\n\tError: Galen does not exist: %s\n' % args.model
         parser.print_help(sys.stderr)
         print >>sys.stderr,  ''
         exit(1)
@@ -82,7 +83,6 @@ def main():
 
 
 def predict(files, model_path, output_dir, format):
-
     # Must specify output format
     if format not in ['i2b2']:
         print >>sys.stderr, '\n\tError: Must specify output format'
@@ -90,25 +90,20 @@ def predict(files, model_path, output_dir, format):
         print >>sys.stderr, ''
         exit(1)
 
-
     # Load model
-    model = Model.load(model_path)
-
+    with open(model_path, 'rb') as f:
+        model = pickle.load(f)
 
     # Tell user if not predicting
     if not files:
-        print >>sys.stderr, "\n\tNote: You did not supply any input files\n"
-        exit()
-
+        print >>sys.stderr, "\n\tYou did not supply any input files\n"
+        exit(1)
 
     # For each file, predict concept labels
     n = len(files)
     for i,txt in enumerate(sorted(files)):
+        note = Document(txt)
 
-        # Read the data into a Note object
-        note = Note(txt)
-
-        # Output file
         fname = os.path.splitext(os.path.basename(txt))[0] + '.con'
         out_path = os.path.join(output_dir, fname)
         '''

@@ -5,7 +5,7 @@ import argparse
 import glob
 import tools
 
-from note import *
+from documents import *
 
 def main():
 
@@ -92,7 +92,7 @@ def main():
     if args.do_concept:
         tag2id = { 'problem':0, 'test':1, 'treatment':2, 'none':3 }
     else:
-        from note import labels as tag2id
+        from documents import labels as tag2id
 
 
     # Compute the confusion matrix
@@ -105,8 +105,8 @@ def main():
     for txt, annotations, gold in files:
 
         # Read predictions and gols standard data
-        cnote = Note(txt, annotations)
-        rnote = Note(txt, gold)
+        cnote = Document(txt, annotations)
+        rnote = Document(txt, gold)
 
         '''
         # List of list of labels
