@@ -1,3 +1,6 @@
-nltk==3.1
-numpy==1.10.1
+theano
+nltk
+numpy
 h5py
+scipy
+keras
