@@ -24,7 +24,7 @@ Installation
 
         wget http://text-machine.cs.uml.edu/cliner/samples/doc_1.txt
 
-        python cliner/galen predict --txt doc_1.txt --out data/predictions --model models/word-lstm.galen  --format i2b2
+        python cliner predict --txt doc_1.txt --out data/predictions --model models/word-lstm.galen  --format i2b2
 
 
 
