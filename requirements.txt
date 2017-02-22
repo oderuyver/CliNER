@@ -3,7 +3,7 @@ nltk
 numpy
 h5py
 scipy
-scikit-learn
 keras
+scikit-learn
 python-crfsuite
 repoze.lru
