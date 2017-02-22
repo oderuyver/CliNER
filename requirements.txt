@@ -3,4 +3,7 @@ nltk
 numpy
 h5py
 scipy
+scikit-learn
 keras
+python-crfsuite
+repoze.lru
