@@ -31,7 +31,7 @@ lstm_model = None
 
 
 def train(train_X_ids, train_Y_ids, tag2id, vocab_size,
-          W=None, epochs=2, val_X_ids=None, val_Y_ids=None):
+          W=None, epochs=10, val_X_ids=None, val_Y_ids=None):
     '''
     train()
 

@@ -24,8 +24,29 @@ Installation
 
         wget http://text-machine.cs.uml.edu/cliner/samples/doc_1.txt
 
-        python cliner/galen predict --txt doc_1.txt --out data/predictions --model models/word-lstm.galen  --format i2b2
+        python cliner predict --txt doc_1.txt --out data/predictions --model models/word-lstm.galen  --format i2b2
 
+
+
+Optional
+--------
+
+There are a few external resources that are not packaged with CliNER but can improve prediction performance for feature extraction with the CRF.
+
+    GENIA
+
+        The GENIA tagger identifies named entities in biomedical text.
+
+        > wget http://www.nactem.ac.uk/tsujii/GENIA/tagger/geniatagger-3.0.2.tar.gz
+        > tar xzvf geniatagger-3.0.2.tar.gz
+        > cd geniatagger-3.0.2
+        > make
+
+        Edit config.txt so that GENIA references the geniatagger executable just built. (e.g. "GENIA   /someuser/CliNER/geniatagger-3.0.2/geniatagger")
+
+    UMLS
+
+        > TODO
 
 
 Optional
