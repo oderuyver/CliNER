@@ -12,6 +12,7 @@ __date__   = 'Aug. 15, 2016'
 
 from collections import defaultdict
 import os
+import math
 import sys
 import io
 import random
@@ -19,7 +20,6 @@ from time import localtime, strftime
 
 from sklearn.feature_extraction  import DictVectorizer
 
-import keras_ml
 import crf_ml
 from documents import labels as tag2id, id2tag
 from tools import flatten, save_list_structure, reconstruct_list
@@ -382,13 +382,8 @@ def generic_train(p_or_n, tokenized_sents, iob_nested_labels, use_lstm,
     #val_sents  = val_sents[ :5]
     #val_labels = val_labels[:5]
 
-    if use_lstm:
-        # train using lstm
-        clf, dev_score  = keras_ml.train(X_seq_ids, Y_labels, tag2id, len(vocab),
-                                         val_X_ids=val_X, val_Y_ids=val_Y)
-    else:
-        # train using crf
-        clf, dev_score  = crf_ml.train(X_feats, Y_labels, val_X=val_X, val_Y=val_Y)
+    # train using crf
+    clf, dev_score  = crf_ml.train(X_feats, Y_labels, val_X=val_X, val_Y=val_Y)
 
     return vocab, clf, dev_score
 
@@ -404,7 +399,7 @@ def generic_predict(p_or_n, tokenized_sents, vocab, clf, use_lstm):
     @param tokenized_sents. A list of sentences, where each sentence is tokenized
                               into words
     @param vocab.           A dictionary mapping word tokens to numeric indices.
-    @param clf.             An encoding of the trained keras model.
+    @param clf.             An encoding of the trained model.
     @param use_lstm.        Bool indicating whether clf is a CRF or LSTM.
     '''
 
@@ -435,10 +430,7 @@ def generic_predict(p_or_n, tokenized_sents, vocab, clf, use_lstm):
     print '\tpredicting  labels ' + p_or_n
 
     # Predict labels
-    if use_lstm:
-        predictions = keras_ml.predict(clf, X)
-    else:
-        predictions =   crf_ml.predict(clf, X)
+    predictions =   crf_ml.predict(clf, X)
 
     # Format labels from output
     return predictions
@@ -481,7 +473,7 @@ def print_vec(f, label, vec):
     f.write(unicode('\t%-10s: ' % label))
     if type(vec) != type([]):
         vec = vec.tolist()
-    for row in range(len(vec)/COLUMNS):
+    for row in range(int(math.ceil(float(len(vec))/COLUMNS))):
         for featname in vec[start:start+COLUMNS]:
             f.write(unicode('%7.3f' % featname))
         f.write(u'\n')

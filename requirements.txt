@@ -1,9 +1,5 @@
-theano
 nltk
 numpy
-h5py
 scipy
-keras
 scikit-learn
 python-crfsuite
-repoze.lru
