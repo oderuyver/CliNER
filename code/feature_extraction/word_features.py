@@ -28,7 +28,7 @@ def feature_stem_lancaster(word):
 
 def feature_generic(word):
     generic = re.sub('[0-9]', '0', word)
-    return {('Generic#', generic): 1}
+    return {('generic#', generic): 1}
 
 def feature_last_two_letters(word):
     return {('last_two_letters', word[-2:]): 1}
@@ -82,39 +82,17 @@ def QANN_features(word):
     >>> QANN_features('test') is not None
     True
     """
-
     features = {}
-
-    # Feature: test result
-    if is_test_result(word):    features[('test_result',None)] = 1
-
-    # Feature: measurements
-    if is_measurement(word):    features[('measurement',None)] = 1
-
-    # Feature: directive
-    if is_directive(word):      features[('directive',  None)] = 1
-
-    # Feature: date
-    if is_date(word):           features[('date',       None)] = 1
-
-    # Feature: volume
-    if is_volume(word):         features[('volume',     None)] = 1
-
-    # Feature: weight
-    if is_weight(word):         features[('weight',     None)] = 1
-
-    # Feature: size
-    if is_size(word):           features[('size',       None)] = 1
-
-    # Feature: prognosis location
-    if is_prognosis_location:   features[('prog_location', None)] = 1
-
-    # Feature: problem form
-    if has_problem_form(word):  features[('problem_form',     None)] = 1
-
-    # Feature: concept class
-    if is_weight(word):         features[('weight',     None)] = 1
-
+    if is_test_result(word):        features[('test_result'  , None)] = 1
+    if is_measurement(word):        features[('measurement'  , None)] = 1
+    if is_directive(word):          features[('directive'    , None)] = 1
+    if is_date(word):               features[('date'         , None)] = 1
+    if is_volume(word):             features[('volume'       , None)] = 1
+    if is_weight(word):             features[('weight'       , None)] = 1
+    if is_size(word):               features[('size'         , None)] = 1
+    if is_prognosis_location(word): features[('prog_location', None)] = 1
+    if has_problem_form(word):      features[('problem_form' , None)] = 1
+    if is_weight(word):             features[('weight'       , None)] = 1
     return features
 
 def feature_prev_word_stem(sentence, ind):
@@ -136,9 +114,9 @@ def feature_next_word_stem(sentence, ind):
         return {('next_word_stem', '<END>'): 1}
 
 
-enabled_IOB_prose_word_features = frozenset( [feature_generic, feature_last_two_letters, feature_word, feature_length, feature_stem_porter, feature_mitre, feature_stem_lancaster, feature_word_shape, feature_metric_unit] )
+enabled_word_features = frozenset( [feature_generic, feature_last_two_letters, feature_word, feature_length, feature_stem_porter, feature_mitre, feature_stem_lancaster, feature_word_shape, feature_metric_unit] )
 
-def IOB_prose_features(word):
+def extract_word_features(word):
     """
     IOB_prose_features()
 
@@ -155,38 +133,11 @@ def IOB_prose_features(word):
     features = {('dummy', None): 1}  # always have >0 dimensions
 
     # Extract all enabled features
-    for feature in enabled_IOB_prose_word_features:
+    for feature in enabled_word_features:
         current_feat = feature(word)
         features.update(current_feat)
 
     return features
-
-
-enabled_IOB_nonprose_word_features = frozenset( [feature_word, feature_word_shape, feature_mitre, QANN_features] )
-
-def IOB_nonprose_features(word):
-    """
-    IOB_nonprose_features()
-
-    Purpose: Creates a dictionary of nonprose features for the given word.
-
-    @param word. A string
-    @return      A dictionary of features
-
-    >>> IOB_nonprose_features('test') is not None
-    True
-    """
-
-    # Feature: <dummy>
-    features = {('dummy', None): 1}  # always have >0 dimensions
-
-    # Extract all enabled features
-    for feature in enabled_IOB_nonprose_word_features:
-        current_feat = feature(word)
-        features.update(current_feat)
-
-    return features
-
 
 
 mitre_features = {
