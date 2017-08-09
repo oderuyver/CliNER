@@ -81,6 +81,10 @@ class ClinerModel:
                     f.write(u'\t%-10s: %s\n' % (name,value))
             f.write(u'\n')
 
+            print_str(f, 'features', self._features)
+            f.write(u'\n')
+
+            f.write(u'\n')
             f.write(unicode('training began: %s\n' % self._time_train_begin))
             f.write(unicode('training ended: %s\n' % self._time_train_end))
             f.write(u'\n')
@@ -170,13 +174,15 @@ class ClinerModel:
         self._time_train_begin = strftime("%Y-%m-%d %H:%M:%S", localtime())
 
         # train classifier
-        voc, clf, dev_score = generic_train('all', tok_sents, tags, 
-                                            val_sents=val_sents, val_labels=val_tags,
-                                            dev_split=dev_split)
+        voc, clf, dev_score, enabled_features = generic_train('all', tok_sents, tags,
+                                                               val_sents=val_sents,
+                                                               val_labels=val_tags,
+                                                               dev_split=dev_split)
         self._is_trained = True
         self._vocab = voc
         self._clf   = clf
         self._score = dev_score
+        self._features = enabled_features
 
         # metadata
         self._time_train_end = strftime("%Y-%m-%d %H:%M:%S", localtime())
@@ -313,6 +319,18 @@ def generic_train(p_or_n, tokenized_sents, iob_nested_labels,
     '''
     text_features = extract_features(tokenized_sents)
 
+    # Collect list of feature types
+    enabled_features = set()
+    for sf in text_features:
+        for wf in sf:
+            for (feature_type,instance),value in wf.items():
+                if feature_type.startswith('prev'):
+                    feature_type = 'PREV*'
+                if feature_type.startswith('next'):
+                    feature_type = 'NEXT*'
+                enabled_features.add(feature_type)
+    enabled_features = sorted(enabled_features)
+
     # Vectorize features
     vocab = DictVectorizer()
     flat_X_feats = vocab.fit_transform( flatten(text_features) )
@@ -345,7 +363,7 @@ def generic_train(p_or_n, tokenized_sents, iob_nested_labels,
     # train using crf
     clf, dev_score  = crf_ml.train(X_feats, Y_labels, val_X=val_X, val_Y=val_Y)
 
-    return vocab, clf, dev_score
+    return vocab, clf, dev_score, enabled_features
 
 
 
@@ -423,6 +441,30 @@ def print_vec(f, label, vec):
     for row in range(int(math.ceil(float(len(vec))/COLUMNS))):
         for featname in vec[start:start+COLUMNS]:
             f.write(unicode('%7.3f' % featname))
+        f.write(u'\n')
+        start += COLUMNS
+
+
+def print_str(f, label, names):
+    '''
+    print_str()
+
+    Pretty formatting for displaying a list of strings in a log
+
+    @param f.           An open file stream to write to.
+    @param label.  A description of the numbers (e.g. "recall").
+    @param names.  A list of strings.
+    '''
+    COLUMNS = 4
+    start = 0
+    for row in range(int(math.ceil(float(len(names))/COLUMNS))):
+        if row == 0:
+            f.write(unicode('\t%-10s: ' % label))
+        else:
+            f.write(unicode('\t%-10s  ' % ''))
+
+        for featname in names[start:start+COLUMNS]:
+            f.write(unicode('%-16s ' % featname))
         f.write(u'\n')
         start += COLUMNS
 
