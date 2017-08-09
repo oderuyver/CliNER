@@ -74,10 +74,7 @@ class ClinerModel:
                 f.write(unicode('model    : %s\n' % os.path.abspath(model_file)))
                 f.write(u'\n')
 
-            if self._use_lstm:
-                f.write(u'modeltype: LSTM\n')
-            else:
-                f.write(u'modeltype: CRF\n')
+            f.write(u'modeltype: CRF\n')
 
             if 'hyperparams' in self._score:
                 for name,value in self._score['hyperparams'].items():
@@ -122,15 +119,13 @@ class ClinerModel:
         return contents
 
 
-    def __init__(self, use_lstm):
+    def __init__(self):
         """
         ClinerModel::__init__()
 
         Instantiate a ClinerModel object.
 
-        @param use_lstm. Bool indicating whether to train a CRF or LSTM.
         """
-        self._use_lstm       = use_lstm
         self._is_trained     = False
         self._clf            = None
         self._vocab          = None
@@ -175,7 +170,7 @@ class ClinerModel:
         self._time_train_begin = strftime("%Y-%m-%d %H:%M:%S", localtime())
 
         # train classifier
-        voc, clf, dev_score = generic_train('all', tok_sents, tags, self._use_lstm,
+        voc, clf, dev_score = generic_train('all', tok_sents, tags, 
                                             val_sents=val_sents, val_labels=val_tags,
                                             dev_split=dev_split)
         self._is_trained = True
@@ -215,18 +210,17 @@ class ClinerModel:
         @return                  List of predictions
         """
         # Predict labels for prose
-        num_pred = generic_predict('all'                    ,
-                                   tokenized_sents          ,
-                                   vocab    = self._vocab   ,
-                                   clf      = self._clf     ,
-                                   use_lstm = self._use_lstm)
+        num_pred = generic_predict('all'                 ,
+                                   tokenized_sents       ,
+                                   vocab    = self._vocab,
+                                   clf      = self._clf  )
         iob_pred = [ [id2tag[p] for p in seq] for seq in num_pred ]
 
         return iob_pred
 
 
 
-def generic_train(p_or_n, tokenized_sents, iob_nested_labels, use_lstm,
+def generic_train(p_or_n, tokenized_sents, iob_nested_labels,
                   val_sents=None, val_labels=None, dev_split=None):
     '''
     generic_train()
@@ -238,7 +232,6 @@ def generic_train(p_or_n, tokenized_sents, iob_nested_labels, use_lstm,
                                  into words
     @param iob_nested_labels.  Parallel to `tokenized_sents`, 7-way labels for 
                                  concept spans
-    @param use_lstm            Bool indicating whether to train CRF or LSTM.
     @param val_sents.          Validation data. Same format as tokenized_sents
     @param val_labels.         Validation data. Same format as iob_nested_labels
     @param dev_split.          A real number from 0 to 1
@@ -305,76 +298,43 @@ def generic_train(p_or_n, tokenized_sents, iob_nested_labels, use_lstm,
     exit()
     '''
 
-    if use_lstm:
-        ########
-        # LSTM
-        ########
+    ########
+    # CRF 
+    ########
 
-        # build vocabulary of words
-        vocab = {}
-        for sent in tokenized_sents:
-            for w in sent:
-                if (w not in vocab) and (w not in oov):
-                    vocab[w] = len(vocab) + 1
-        vocab['oov'] = len(vocab) + 1
+    # vectorize tokenized sentences
+    '''
+    def make_feature(ind):
+        return {(ind,i):1 for i in range(10)}
+    text_features = []
+    for sent in tokenized_sents:
+        fseq = [make_feature(vocab[w] if w in vocab else vocab['oov']) for w in sent]
+        text_features.append(fseq)
+    '''
+    text_features = extract_features(tokenized_sents)
 
-        # vectorize tokenized sentences
-        X_seq_ids = []
-        for sent in tokenized_sents:
-            id_seq = [ (vocab[w] if w in vocab else vocab['oov']) for w in sent ]
-            X_seq_ids.append(id_seq)
+    # Vectorize features
+    vocab = DictVectorizer()
+    flat_X_feats = vocab.fit_transform( flatten(text_features) )
+    X_feats = reconstruct_list(flat_X_feats, save_list_structure(text_features))
 
-        # vectorize IOB labels
-        Y_labels = [ [tag2id[y] for y in y_seq] for y_seq in iob_nested_labels ]
+    # vectorize IOB labels
+    Y_labels = [ [tag2id[y] for y in y_seq] for y_seq in iob_nested_labels ]
 
-        # if there is specified validation data, then vectorize it
-        if val_sents:
-            # vectorize validation X
-            val_X = []
-            for sent in val_sents:
-                id_seq = [ (vocab[w] if w in vocab else vocab['oov']) for w in sent ]
-                val_X.append(id_seq)
-            # vectorize validation Y
-            val_Y = [ [tag2id[y] for y in y_seq] for y_seq in val_labels ]
-
-    else:
-        ########
-        # CRF 
-        ########
-
-        # vectorize tokenized sentences
-        '''
-        def make_feature(ind):
-            return {(ind,i):1 for i in range(10)}
-        text_features = []
-        for sent in tokenized_sents:
-            fseq = [make_feature(vocab[w] if w in vocab else vocab['oov']) for w in sent]
-            text_features.append(fseq)
-        '''
-        text_features = extract_features(tokenized_sents)
-
-        # Vectorize features
-        vocab = DictVectorizer()
-        flat_X_feats = vocab.fit_transform( flatten(text_features) )
-        X_feats = reconstruct_list(flat_X_feats, save_list_structure(text_features))
-
-        # vectorize IOB labels
-        Y_labels = [ [tag2id[y] for y in y_seq] for y_seq in iob_nested_labels ]
-
-        assert len(X_feats) == len(Y_labels)
-        for i in range(len(X_feats)):
-            assert X_feats[i].shape[0] == len(Y_labels[i])
+    assert len(X_feats) == len(Y_labels)
+    for i in range(len(X_feats)):
+        assert X_feats[i].shape[0] == len(Y_labels[i])
 
 
-        # if there is specified validation data, then vectorize it
-        if val_sents:
-            # vectorize validation X
-            val_text_features = extract_features(val_sents)
-            flat_val_X_feats = vocab.transform( flatten(val_text_features) )
-            val_X = reconstruct_list(flat_val_X_feats, 
-                                     save_list_structure(val_text_features))
-            # vectorize validation Y
-            val_Y = [ [tag2id[y] for y in y_seq] for y_seq in val_labels ]
+    # if there is specified validation data, then vectorize it
+    if val_sents:
+        # vectorize validation X
+        val_text_features = extract_features(val_sents)
+        flat_val_X_feats = vocab.transform( flatten(val_text_features) )
+        val_X = reconstruct_list(flat_val_X_feats, 
+                                 save_list_structure(val_text_features))
+        # vectorize validation Y
+        val_Y = [ [tag2id[y] for y in y_seq] for y_seq in val_labels ]
 
 
     print '\ttraining classifiers', p_or_n
@@ -389,7 +349,7 @@ def generic_train(p_or_n, tokenized_sents, iob_nested_labels, use_lstm,
 
 
 
-def generic_predict(p_or_n, tokenized_sents, vocab, clf, use_lstm):
+def generic_predict(p_or_n, tokenized_sents, vocab, clf):
     '''
     generic_predict()
 
@@ -400,7 +360,6 @@ def generic_predict(p_or_n, tokenized_sents, vocab, clf, use_lstm):
                               into words
     @param vocab.           A dictionary mapping word tokens to numeric indices.
     @param clf.             An encoding of the trained model.
-    @param use_lstm.        Bool indicating whether clf is a CRF or LSTM.
     '''
 
     # If nothing to predict, skip actual prediction
@@ -410,22 +369,10 @@ def generic_predict(p_or_n, tokenized_sents, vocab, clf, use_lstm):
 
     print '\tvectorizing words ' + p_or_n
 
-    if use_lstm:
-        # vectorize tokenized sentences
-        X = []
-        for sent in tokenized_sents:
-            id_seq = []
-            for w in sent:
-                if w in vocab:
-                    id_seq.append(vocab[w])
-                else:
-                    id_seq.append(vocab['oov'])
-            X.append(id_seq)
-    else:
-        # vectorize validation X
-        text_features = extract_features(tokenized_sents)
-        flat_X_feats = vocab.transform( flatten(text_features) )
-        X = reconstruct_list(flat_X_feats, save_list_structure(text_features))
+    # vectorize validation X
+    text_features = extract_features(tokenized_sents)
+    flat_X_feats = vocab.transform( flatten(text_features) )
+    X = reconstruct_list(flat_X_feats, save_list_structure(text_features))
 
     print '\tpredicting  labels ' + p_or_n
 
