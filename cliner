@@ -21,7 +21,7 @@ import os
 
 def main():
 
-    commands = ['train', 'predict', 'evaluate', 'error']
+    commands = ['train', 'predict', 'evaluate', 'error', 'examine']
 
     help_msg = \
     '''
@@ -62,6 +62,9 @@ def main():
     elif subcmd == 'error':
         import error
         error.main()
+    elif subcmd == 'examine':
+        import examine
+        examine.main()
 
 
 
