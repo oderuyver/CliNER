@@ -24,9 +24,9 @@ Installation
 
         wget http://text-machine.cs.uml.edu/cliner/samples/doc_1.txt
 
-        wget http://text-machine.cs.uml.edu/cliner/models/silver.model -o models/silver.model
+        wget http://text-machine.cs.uml.edu/cliner/models/silver.model;  mv silver.model models/silver.model
 
-        python cliner predict --txt doc_1.txt --out data/predictions --model models/silver.model  --format i2b2
+        cliner predict --txt doc_1.txt --out data/predictions --model models/silver.model  --format i2b2
 
 
 
