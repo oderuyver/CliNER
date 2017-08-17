@@ -6,7 +6,7 @@ Clinical Named Entity Recognition system (CliNER) is an open-source natural lang
 
 CliNER is implemented as a sequence classification task, where every token is predicted IOB-style as either: Problem, Test, Treatment, or None. Coomand line flags let you specify two different sequence classification algorithms:
     1. CRF (default) - with linguistic and domain-specific features
-    2. LSTM - [Upcoming: with the option of specifying pretrained word embeddings]
+    2. LSTM
 
 Please note that for optimal performance, CliNER requires the users to obtain a Unified Medical Language System (UMLS) license, since UMLS Metathesaurus is used as one of the knowledge sources for the above classifiers.
 
@@ -24,7 +24,9 @@ Installation
 
         wget http://text-machine.cs.uml.edu/cliner/samples/doc_1.txt
 
-        python cliner predict --txt doc_1.txt --out data/predictions --model models/word-lstm.galen  --format i2b2
+        wget http://text-machine.cs.uml.edu/cliner/models/silver.model -o models/silver.model
+
+        python cliner predict --txt doc_1.txt --out data/predictions --model models/silver.model  --format i2b2
 
 
 
@@ -83,3 +85,35 @@ to register and sign the DUA. Then you will be able to request the data through 
 
 
 
+Notes
+--------
+
+The cliner pipeline assumes that the clinical text has been preprocessed to be tokenized, as in accordance with the i2b2 format. I have included a simple tokenization script (see: `tools/tok.py`) that you can use or modify as you wish.
+
+The silver model does come with some degradation of performance. Given that the alternative is no model, I think this is okay, but be aware that if you have the i2b2 training data, then you can build a model that performs even better on the i2b2 test data.
+
+
+Original Model (trained on i2b2-train data with UMLS + GENIA feats)
+
+    TESTING 1.1 -  Exact span for all concepts together
+                         TP    FN    FP   Recall Precision F1
+    Class Exact Span -> 23358 4904  7696  0.826  0.752     0.788
+
+    TESTING 1.2 -  Exact span for separate concept classes
+                                                      TP    FN    FP   Recall   Precision  F1
+    Exact Span With Matching Class for Problem   ->  9478  2291  3077  0.805    0.755      0.779
+    Exact Span With Matching Class for Treatment ->  6881  1402  2398  0.831    0.742      0.784
+    Exact Span With Matching Class for Test      ->  6999  1211  2221  0.852    0.759      0.803
+
+
+Silver Model (trained on mimic data that was annotated by Original Model)
+
+    TESTING 1.1 -  Exact span for all concepts together
+                         TP    FN    FP    Recall Precision F1
+    Class Exact Span -> 20771 5504  10283  0.791  0.669     0.725
+
+    TESTING 1.2 -  Exact span for separate concept classes
+                                                     TP    FN    FP   Recall  Precision  F1
+    Exact Span With Matching Class for Problem   -> 8735  2875  3820  0.752   0.696      0.7229464100972481
+    Exact Span With Matching Class for Treatment -> 5961  1278  3318  0.823   0.642      0.721758082092263
+    Exact Span With Matching Class for Test      -> 6075  1351  3145  0.818   0.659      0.7299050823020545
